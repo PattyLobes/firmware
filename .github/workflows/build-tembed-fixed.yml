@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
       - run: pip install -U platformio esptool
 
-      - name: Apply Sub-GHz, Speaker, BLE & Remove FastLED
+      - name: Apply All Hardware, BLE & Dependency Fixes
         run: |
           python3 - << 'EOF'
           import os, re
@@ -45,14 +45,20 @@ jobs:
                       if "enableScanResponse(false)" in c:
                           open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
 
-          # 4. Remove FastLED dependency completely from platformio.ini or source if referenced
-          piomap = "platformio.ini"
-          if os.path.exists(piomap):
-              content = open(piomap, encoding="utf-8").read()
-              # Strip fastled out of library dependencies if present
-              content = re.sub(r'.*fastled.*\n', '', content, flags=re.IGNORECASE)
-              open(piomap, "w", encoding="utf-8").write(content)
+          # 4. Safely undefine FP right before FastLED is included in led_control.h
+          led_h = "src/core/led_control.h"
+          if os.path.exists(led_h):
+              c = open(led_h, encoding="utf-8").read()
+              if "#undef FP" not in c:
+                  c = c.replace("#include <FastLED.h>", "#undef FP\n#include <FastLED.h>")
+                  open(led_h, "w", encoding="utf-8").write(c)
           EOF
+
+      - name: Install and verify PlatformIO dependencies
+        run: |
+          pio pkg install -e lilygo-t-embed-cc1101
+          find .pio/libdeps/lilygo-t-embed-cc1101 \
+            -type f -name FastLED.h -print -quit | grep -q .
 
       - name: Compile T-Embed CC1101 Plus
         run: pio run -e lilygo-t-embed-cc1101
