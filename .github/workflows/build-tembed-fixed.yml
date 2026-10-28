@@ -1,0 +1,64 @@
+name: Build T-Embed CC1101 Plus Fixed
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python & PlatformIO
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -U platformio esptool
+
+      - name: Apply Sub-GHz, Speaker & BLE Fixes
+        run: |
+          python3 - << 'EOF'
+          import os, re
+
+          # 1. Sub-GHz Antenna Switch Guard Fix
+          rf = "src/modules/rf/rf_utils.cpp"
+          if os.path.exists(rf):
+              s = open(rf).read()
+              s = re.sub(r'#if\s+defined\(T_EMBED\)\s*(?!\|\|\s*defined\(T_EMBED_1101\))', '#if defined(T_EMBED) || defined(T_EMBED_1101)', s)
+              open(rf, "w").write(s)
+
+          # 2. Speaker I2S Pins Verification
+          pins = "boards/lilygo-t-embed-cc1101/pins_arduino.h"
+          if os.path.exists(pins):
+              s = open(pins).read()
+              s = re.sub(r'#define\s+BCLK_PIN\s+\d+', '#define BCLK_PIN 7', s)
+              s = re.sub(r'#define\s+WCLK_PIN\s+\d+', '#define WCLK_PIN 5', s)
+              s = re.sub(r'#define\s+DOUT_PIN\s+\d+', '#define DOUT_PIN 6', s)
+              open(pins, "w").write(s)
+
+          # 3. BLE Scan Response Fix
+          for r, _, files in os.walk("src"):
+              for fn in files:
+                  if fn.endswith((".cpp", ".h")):
+                      p = os.path.join(r, fn)
+                      c = open(p, errors="ignore").read()
+                      if "enableScanResponse(false)" in c:
+                          open(p, "w").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
+          EOF
+
+      - name: Compile Firmware
+        run: pio run -e lilygo-t-embed-cc1101
+
+      - name: Merge Full Flashable Binary
+        run: |
+          esptool.py --chip esp32s3 merge_bin \
+            -o bruce-t-embed-cc1101-plus-FIXED.bin \
+            --flash_mode dio --flash_freq 80m --flash_size 16MB \
+            0x0 .pio/build/lilygo-t-embed-cc1101/bootloader.bin \
+            0x8000 .pio/build/lilygo-t-embed-cc1101/partitions.bin \
+            0x10000 .pio/build/lilygo-t-embed-cc1101/firmware.bin
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bruce-t-embed-cc1101-plus-FIXED
+          path: bruce-t-embed-cc1101-plus-FIXED.bin
