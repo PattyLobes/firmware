@@ -46,37 +46,16 @@ jobs:
                           open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
           EOF
 
-      - name: Initial Compile (Downloads Libraries)
+      - name: Initial Compile to Fetch Libs
         run: pio run -e lilygo-t-embed-cc1101 || true
 
-      - name: Aggressive FastLED Macro Collision Fix
+      - name: Purge FastLED Completely
         run: |
           python3 - << 'EOF'
-          import os, re
-          libdeps_dir = ".pio/libdeps"
-          if os.path.exists(libdeps_dir):
-              for root, dirs, files in os.walk(libdeps_dir):
-                  if "FastLED" in root:
-                      for file in files:
-                          if file.endswith((".h", ".hpp", ".cpp", ".cc")):
-                              path = os.path.join(root, file)
-                              try:
-                                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                                      content = f.read()
-                                  
-                                  original = content
-                                  # Replace template parameters and fixed point declarations named FP
-                                  content = re.sub(r'\btypename\s+FP\b', 'typename FASTLED_FP', content)
-                                  content = re.sub(r'\busing\s+FP\s*=', 'using FASTLED_FP =', content)
-                                  content = re.sub(r'\bclass\s+FP\b', 'class FASTLED_FP', content)
-                                  content = re.sub(r'\bstruct\s+FP\b', 'struct FASTLED_FP', content)
-                                  
-                                  if content != original:
-                                      with open(path, "w", encoding="utf-8") as f:
-                                          f.write(content)
-                                      print(f"Patched: {path}")
-                              except Exception as e:
-                                  print(f"Skipped {path}: {e}")
+          import shutil, glob
+          for p in glob.glob(".pio/libdeps/**/FastLED", recursive=True):
+              shutil.rmtree(p, ignore_errors=True)
+              print(f"Deleted FastLED folder: {p}")
           EOF
 
       - name: Final Compile & Build
