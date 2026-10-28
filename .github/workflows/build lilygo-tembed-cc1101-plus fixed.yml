@@ -44,14 +44,6 @@ jobs:
                       c = open(p, errors="ignore").read()
                       if "enableScanResponse(false)" in c:
                           open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
-
-          # 4. Safely undefine FP right before FastLED is included in led_control.h
-          led_h = "src/core/led_control.h"
-          if os.path.exists(led_h):
-              c = open(led_h, encoding="utf-8").read()
-              if "#undef FP" not in c:
-                  c = c.replace("#include <FastLED.h>", "#undef FP\n#include <FastLED.h>")
-                  open(led_h, "w", encoding="utf-8").write(c)
           EOF
 
       - name: Install and verify PlatformIO dependencies
@@ -60,12 +52,36 @@ jobs:
           find .pio/libdeps/lilygo-t-embed-cc1101 \
             -type f -name FastLED.h -print -quit | grep -q .
 
+      - name: Sanitize FastLED Internal 'FP' Identifier Collision
+        run: |
+          python3 - << 'EOF'
+          import os, re
+          fl_dir = ".pio/libdeps/lilygo-t-embed-cc1101/FastLED/src/fl"
+          if not os.path.exists(fl_dir):
+              raise SystemExit(f"FastLED fl directory not found: {fl_dir}")
+          
+          count = 0
+          for root, _, files in os.walk(fl_dir):
+              for fn in files:
+                  if fn.endswith((".h", ".hpp", ".cpp", ".cc", ".c")):
+                      p = os.path.join(root, fn)
+                      with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                          c = f.read()
+                      new_c = re.sub(r'\bFP\b', 'FASTLED_FP', c)
+                      if new_c != c:
+                          with open(p, "w", encoding="utf-8") as f:
+                              f.write(new_c)
+                          count += 1
+                          print(f"Sanitized: {p}")
+          print(f"Total FastLED files sanitized: {count}")
+          EOF
+
       - name: Compile T-Embed CC1101 Plus
         run: pio run -e lilygo-t-embed-cc1101
 
       - name: Merge Full Flashable Binary
         run: |
-          esptool.py --chip esp32s3 merge_bin \
+          python3 -m esptool --chip esp32s3 merge_bin \
             -o bruce-t-embed-cc1101-plus-FIXED.bin \
             --flash_mode dio --flash_freq 80m --flash_size 16MB \
             0x0 .pio/build/lilygo-t-embed-cc1101/bootloader.bin \
