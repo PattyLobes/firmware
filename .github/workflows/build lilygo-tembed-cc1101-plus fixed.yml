@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
       - run: pip install -U platformio esptool
 
-      - name: Apply Sub-GHz, Speaker & BLE Fixes
+      - name: Apply All Hardware & BLE Fixes
         run: |
           python3 - << 'EOF'
           import os, re
@@ -44,36 +44,23 @@ jobs:
                       c = open(p, errors="ignore").read()
                       if "enableScanResponse(false)" in c:
                           open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
+
+          # 4. Safely undefine FP right before FastLED is included in led_control.h
+          led_h = "src/core/led_control.h"
+          if os.path.exists(led_h):
+              c = open(led_h, encoding="utf-8").read()
+              if "#undef FP" not in c:
+                  c = c.replace("#include <FastLED.h>", "#undef FP\n#include <FastLED.h>")
+                  open(led_h, "w", encoding="utf-8").write(c)
           EOF
 
-      - name: Fetch Dependencies
-        run: pio run -e lilygo-t-embed-cc1101 || true
-
-      - name: Sanitize FastLED Template Macro Collision
+      - name: Install and verify PlatformIO dependencies
         run: |
-          python3 - << 'EOF'
-          import os, re, glob
-          for path in glob.glob(".pio/libdeps/**/FastLED/**/*.h", recursive=True) + glob.glob(".pio/libdeps/**/FastLED/**/*.cpp", recursive=True):
-              try:
-                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                      content = f.read()
-                  
-                  original = content
-                  # Replace FastLED template/type parameters named FP with FASTLED_FP
-                  content = re.sub(r'\btypename\s+FP\b', 'typename FASTLED_FP', content)
-                  content = re.sub(r'\busing\s+FP\s*=', 'using FASTLED_FP =', content)
-                  content = re.sub(r'\bclass\s+FP\b', 'class FASTLED_FP', content)
-                  content = re.sub(r'\bstruct\s+FP\b', 'struct FASTLED_FP', content)
-                  
-                  if content != original:
-                      with open(path, "w", encoding="utf-8") as f:
-                          f.write(content)
-                      print(f"Sanitized FastLED file: {path}")
-              except Exception as e:
-                  print(f"Skipped {path}: {e}")
-          EOF
+          pio pkg install -e lilygo-t-embed-cc1101
+          find .pio/libdeps/lilygo-t-embed-cc1101 \
+            -type f -name FastLED.h -print -quit | grep -q .
 
-      - name: Final Compile & Build
+      - name: Compile T-Embed CC1101 Plus
         run: pio run -e lilygo-t-embed-cc1101
 
       - name: Merge Full Flashable Binary
