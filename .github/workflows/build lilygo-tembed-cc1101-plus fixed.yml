@@ -46,16 +46,31 @@ jobs:
                           open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
           EOF
 
-      - name: Initial Compile to Fetch Libs
+      - name: Fetch Dependencies
         run: pio run -e lilygo-t-embed-cc1101 || true
 
-      - name: Purge FastLED Completely
+      - name: Sanitize FastLED Template Macro Collision
         run: |
           python3 - << 'EOF'
-          import shutil, glob
-          for p in glob.glob(".pio/libdeps/**/FastLED", recursive=True):
-              shutil.rmtree(p, ignore_errors=True)
-              print(f"Deleted FastLED folder: {p}")
+          import os, re, glob
+          for path in glob.glob(".pio/libdeps/**/FastLED/**/*.h", recursive=True) + glob.glob(".pio/libdeps/**/FastLED/**/*.cpp", recursive=True):
+              try:
+                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                      content = f.read()
+                  
+                  original = content
+                  # Replace FastLED template/type parameters named FP with FASTLED_FP
+                  content = re.sub(r'\btypename\s+FP\b', 'typename FASTLED_FP', content)
+                  content = re.sub(r'\busing\s+FP\s*=', 'using FASTLED_FP =', content)
+                  content = re.sub(r'\bclass\s+FP\b', 'class FASTLED_FP', content)
+                  content = re.sub(r'\bstruct\s+FP\b', 'struct FASTLED_FP', content)
+                  
+                  if content != original:
+                      with open(path, "w", encoding="utf-8") as f:
+                          f.write(content)
+                      print(f"Sanitized FastLED file: {path}")
+              except Exception as e:
+                  print(f"Skipped {path}: {e}")
           EOF
 
       - name: Final Compile & Build
