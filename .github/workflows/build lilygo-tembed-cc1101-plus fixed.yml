@@ -23,18 +23,18 @@ jobs:
           # 1. Sub-GHz Antenna Switch Guard Fix
           rf = "src/modules/rf/rf_utils.cpp"
           if os.path.exists(rf):
-              s = open(rf).read()
+              s = open(rf, encoding="utf-8").read()
               s = re.sub(r'#if\s+defined\(T_EMBED\)\s*(?!\|\|\s*defined\(T_EMBED_1101\))', '#if defined(T_EMBED) || defined(T_EMBED_1101)', s)
-              open(rf, "w").write(s)
+              open(rf, "w", encoding="utf-8").write(s)
 
           # 2. Speaker I2S Pins Verification
           pins = "boards/lilygo-t-embed-cc1101/pins_arduino.h"
           if os.path.exists(pins):
-              s = open(pins).read()
+              s = open(pins, encoding="utf-8").read()
               s = re.sub(r'#define\s+BCLK_PIN\s+\d+', '#define BCLK_PIN 7', s)
               s = re.sub(r'#define\s+WCLK_PIN\s+\d+', '#define WCLK_PIN 5', s)
               s = re.sub(r'#define\s+DOUT_PIN\s+\d+', '#define DOUT_PIN 6', s)
-              open(pins, "w").write(s)
+              open(pins, "w", encoding="utf-8").write(s)
 
           # 3. BLE Scan Response Fix
           for r, _, files in os.walk("src"):
@@ -43,10 +43,43 @@ jobs:
                       p = os.path.join(r, fn)
                       c = open(p, errors="ignore").read()
                       if "enableScanResponse(false)" in c:
-                          open(p, "w").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
+                          open(p, "w", encoding="utf-8").write(c.replace("enableScanResponse(false)", "enableScanResponse(true)"))
           EOF
 
-      - name: Compile T-Embed CC1101 Plus
+      - name: Initial Compile (Downloads Libraries)
+        run: pio run -e lilygo-t-embed-cc1101 || true
+
+      - name: Aggressive FastLED Macro Collision Fix
+        run: |
+          python3 - << 'EOF'
+          import os, re
+          libdeps_dir = ".pio/libdeps"
+          if os.path.exists(libdeps_dir):
+              for root, dirs, files in os.walk(libdeps_dir):
+                  if "FastLED" in root:
+                      for file in files:
+                          if file.endswith((".h", ".hpp", ".cpp", ".cc")):
+                              path = os.path.join(root, file)
+                              try:
+                                  with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                                      content = f.read()
+                                  
+                                  original = content
+                                  # Replace template parameters and fixed point declarations named FP
+                                  content = re.sub(r'\btypename\s+FP\b', 'typename FASTLED_FP', content)
+                                  content = re.sub(r'\busing\s+FP\s*=', 'using FASTLED_FP =', content)
+                                  content = re.sub(r'\bclass\s+FP\b', 'class FASTLED_FP', content)
+                                  content = re.sub(r'\bstruct\s+FP\b', 'struct FASTLED_FP', content)
+                                  
+                                  if content != original:
+                                      with open(path, "w", encoding="utf-8") as f:
+                                          f.write(content)
+                                      print(f"Patched: {path}")
+                              except Exception as e:
+                                  print(f"Skipped {path}: {e}")
+          EOF
+
+      - name: Final Compile & Build
         run: pio run -e lilygo-t-embed-cc1101
 
       - name: Merge Full Flashable Binary
