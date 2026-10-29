@@ -148,9 +148,11 @@ jobs:
               print("[+] Registered pre:fix_fastled_fp.py in platformio.ini")
           EOF
 
-      - name: Install, Sanitize & Compile T-Embed CC1101 Plus
+      - name: Install Dependencies with Retry & Compile
         run: |
-          pio pkg install -e lilygo-t-embed-cc1101
+          for i in {1..3}; do
+            pio pkg install -e lilygo-t-embed-cc1101 && break || sleep 5
+          done
           pio run -e lilygo-t-embed-cc1101
 
       - name: Merge Binary, Package JS Interpreter & Generate Features .txt Guides
